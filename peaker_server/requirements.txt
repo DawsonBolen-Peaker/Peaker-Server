@@ -1,0 +1,16 @@
+anthropic
+pandas
+pypdf
+python-dotenv
+pywebview
+azure-identity
+msgraph-sdk
+requests
+pymupdf
+pillow
+opencv-python
+numpy
+rembg
+onnxruntime
+truststore
+rapidocr_onnxruntime
