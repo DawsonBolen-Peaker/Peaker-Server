@@ -4,7 +4,7 @@ from pathlib import Path
 
 # server/ is the import root (main.py runs "app.api:app" from there), so every import
 # inside app/ starts with "app.", the same as api.py and claude_search.py
-from app.search import _db_path
+from services.api.search import _db_path
 
 
 def get_file_data_from_chunk_id(chunk_uuid: str) -> dict | None:

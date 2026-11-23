@@ -62,7 +62,7 @@ def cost_usd(usage) -> float:
     """What a usage dict cost, from the list prices in api/claudeAgent.PRICES."""
     if not usage:
         return 0.0
-    from server.services.Claude.claudeAgent import PRICES, MODEL
+    from services.Claude.claudeAgent import PRICES, MODEL
     model = usage.get("model") or MODEL
     # the API can report a longer name (e.g. with a date); match on the start
     key = next((k for k in sorted(PRICES, key=len, reverse=True) if model.startswith(k)), MODEL)

@@ -16,9 +16,9 @@ from dotenv import load_dotenv
 import json, re
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))    
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))     # server/
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=True)     # server/.env
 
 def _db_path() -> Path:
     r"""docs.db on the network share. DOCS_DB_DIR wins if set; otherwise the db folder

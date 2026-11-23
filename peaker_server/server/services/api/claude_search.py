@@ -1,7 +1,7 @@
 import anthropic
 import os
 import json
-from app.search import search
+from services.api.search import search
 
 MODEL = "claude-sonnet-5-5"
 

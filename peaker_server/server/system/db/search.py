@@ -11,10 +11,10 @@ import sys
 from pathlib import Path
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))     # server/
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))     # server/
 
 import json, re
-from server.system.db.dbfunctions.database import connect
+from system.db.dbfunctions.database import connect
 
 # chunks_fts columns: text, section_title, summary, keywords, doc_title, doc_keywords
 WEIGHTS = (1.0, 4.0, 2.0, 3.0, 2.0, 1.0)

@@ -4,9 +4,9 @@ import pandas as pd
 import csv
 import sys
 import pathlib
-from server.system.db.dbfunctions.database import get_scanned_files
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))     # server/
+from system.db.dbfunctions.queries.queries import get_scanned_files
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 
 df = get_scanned_files()

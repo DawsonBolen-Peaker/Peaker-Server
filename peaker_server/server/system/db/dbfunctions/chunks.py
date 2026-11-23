@@ -1,3 +1,10 @@
+"""Search chunks (chunks table) and each file's chunking status (claude_chunk.py, chunkBatchApi.py)."""
+
+from system.db.dbfunctions.database import SCANNED, CHUNK_QUEUED, CHUNK_DONE, CHUNK_FAILED, connect
+from system.db.dbfunctions.files import FILE_COLUMNS
+from system.db.dbfunctions.helpers import now
+
+
 def files_by_uuid(file_ids) -> list[dict]:
     """Rows (FILE_COLUMNS plus what chunking needs) for these uuids, in no set order."""
     ids = list(dict.fromkeys(file_ids))

@@ -1,3 +1,14 @@
+"""Rows in the batches table (one per run): what each run sent, what it cost, and marking files processed."""
+
+from pathlib import Path
+import pandas as pd
+
+from system.db.dbfunctions.database import (SCANNED, OCR_SCANNED, OCR_BY_CLAUDE, SYSTEM_VERSION, connect,
+                                            read_df)
+from system.db.dbfunctions.folders import folder_id_for, update_folder_flags
+from system.db.dbfunctions.helpers import now, join_departments
+
+
 def batch_row_id(conn, name: str, status: str = "running") -> int:
     conn.execute("INSERT OR IGNORE INTO batches (name, created_at, status) VALUES (?, ?, ?)",
                  (name, now(), status))
@@ -17,7 +28,7 @@ def set_batch_status(name: str, status: str) -> None:
 def _add_to_batch(conn, batch_name: str, usage=None, files_done=0, files_failed=0,
                   pages=0, image_pages=0) -> None:
     """Add one file's (or one request's) usage and pages to a run's totals."""
-    from server.services.finance.usage import cost_usd
+    from services.finance.usage import cost_usd
     u = usage or {}
     batch_row_id(conn, batch_name)
     conn.execute(
@@ -57,15 +68,13 @@ def batch_costs() -> pd.DataFrame:
 
 
 
-def join_departments(departments) -> str:
-    return "; ".join(d for d in departments or [] if isinstance(d, str) and d.strip())
 
 
 def mark_processed(file_id: str, result: dict, batch_name: str, usage=None) -> None:
     """result is what processRequest.process_document returned; usage is what
     its requests took (finance/usage.py). Both go on the file's row, and its
     pages and usage are added to the run's totals on the batches row."""
-    from server.services.finance.usage import cost_usd
+    from services.finance.usage import cost_usd
     new_relpath = result["relpath"]
     u = usage or {}
     with connect() as conn:
@@ -100,3 +109,9 @@ def mark_processed(file_id: str, result: dict, batch_name: str, usage=None) -> N
         # its OCR pages were only needed to send it and rebuild it
         conn.execute("DELETE FROM pages WHERE file_id = (SELECT file_id FROM files WHERE uuid = ?)", (file_id,))
         update_folder_flags(conn)
+
+def record_run_usage(batch_name: str, usage=None, files_done: int = 0, files_failed: int = 0) -> None:
+    """Add a run's usage and file counts to its batches row (for runs that
+    don't go through mark_processed, like chunking)."""
+    with connect() as conn:
+        _add_to_batch(conn, batch_name, usage, files_done=files_done, files_failed=files_failed)

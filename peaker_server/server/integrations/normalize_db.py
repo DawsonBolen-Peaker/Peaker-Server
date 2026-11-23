@@ -21,7 +21,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # so db / system import from server/
-from server.system.db.dbfunctions.database import connect, ocr_status_of, OCR_SCANNED, OCR_BY_SCANNER, OCR_BY_CLAUDE, SCANNED
+from system.db.dbfunctions.database import connect, OCR_SCANNED, OCR_BY_SCANNER, OCR_BY_CLAUDE, SCANNED
+from system.db.dbfunctions.files import ocr_status_of
 from system.paths import DB_PATH, DOCUMENTS_DIR
 
 ROOT = DOCUMENTS_DIR.name

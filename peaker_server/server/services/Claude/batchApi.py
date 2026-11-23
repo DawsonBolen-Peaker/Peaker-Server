@@ -23,17 +23,17 @@ from pathlib import Path
 
 from anthropic.types.messages.batch_create_params import Request
 
-from server.services.Claude.claudeAgent import (build_context, plan_chunks, build_params, extract_record,
+from services.Claude.claudeAgent import (build_context, plan_chunks, build_params, extract_record,
                              merge_chunk_results, pdf_page_count, get_client)
-from server.system.db.dbfunctions.database import (WORK_LOCK, UNSCANNED, IN_PROGRESS, add_new_items, files_with_status,
-                         get_file, set_status, mark_failed, mark_processed, get_meta, set_meta,
-                         record_failed_usage, set_message_batch_ids)
-from server.services.finance.usage import empty_usage, usage_of, add_usage, cost_usd
+from system.db.dbfunctions.database import WORK_LOCK, UNSCANNED, IN_PROGRESS, get_meta, set_meta
+from system.db.dbfunctions.files import add_new_items, files_with_status, get_file, set_status, mark_failed
+from system.db.dbfunctions.batches import mark_processed, record_failed_usage, set_message_batch_ids
+from services.finance.usage import empty_usage, usage_of, add_usage, cost_usd
 from system.editConfigFiles import track_new_categories
-from server.workers.processing.processRequest import process_document
+from workers.processing.processRequest import process_document
 from system.batchconfig import start_batch, finish_batch
 from system.paths import file_path
-from server.services.Claude.claude_chunk import is_chunk_request, cut_scan_chunks, save_scan_chunks
+from services.Claude.claude_chunk import is_chunk_request, cut_scan_chunks, save_scan_chunks
 
 # The API allows 100,000 requests / 256 MB per batch. Batches are kept well
 # under that so each upload is quick; a big workload just becomes several
@@ -292,7 +292,7 @@ def check_batches(verbose=False, on_event=_no_events) -> dict:
     """Check scan batches and chunking batches once. The scan progress keys as
     in check_scan_batches(), plus the chunking ones prefixed chunk_
     (chunk_batches, chunk_files_waiting, chunk_applied, ...)."""
-    from server.services.Claude.chunkBatchApi import check_chunk_batches
+    from services.Claude.chunkBatchApi import check_chunk_batches
     progress = check_scan_batches(verbose, on_event)
     try:
         chunk = check_chunk_batches(verbose, on_event)

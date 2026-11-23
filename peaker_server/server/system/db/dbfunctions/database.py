@@ -1,4 +1,7 @@
-"""Every read and write of docs.db. Replaces the old tree.csv tracker.
+"""The core of docs.db: the connection, schema upgrades, status constants and meta.
+Replaces the old tree.csv tracker. The rest of the reads and writes are split by
+table: files.py, folders.py, batches.py, chunks.py, queries/queries.py; small
+shared helpers are in helpers.py. Import each name from the module that defines it.
 
 Lists of files come back as pandas DataFrames (pd.read_sql_query) with the
 column names the rest of the app already used: id (the file's uuid),
@@ -8,15 +11,12 @@ docs.db sits on a network share, so each call opens a short-lived connection
 (no WAL mode; it doesn't work over SMB). Run one copy of the app at a time.
 """
 
-import hashlib, os, shutil, sqlite3, threading, uuid
+import os, shutil, sqlite3, threading
 from contextlib import contextmanager
-from datetime import datetime
-from pathlib import Path
 import pandas as pd
 
-from server.system.db.schema import SCHEMA, ADDED_COLUMNS, INDEXES_ON_ADDED, CHUNK_SCHEMA
-from system.paths import DB_PATH, DOCUMENTS_DIR, ROOTS, root_dir, file_path
-from server.workers.processing.reconstructFile import read_pdf_id
+from system.db.schema import SCHEMA, ADDED_COLUMNS, INDEXES_ON_ADDED, CHUNK_SCHEMA
+from system.paths import DB_PATH, DOCUMENTS_DIR
 
 UNSCANNED, SCANNED, IN_PROGRESS, FAILED, DUPLICATE = "unscanned", "scanned", "in progress", "failed", "duplicate"
 SKIPPED = "skipped"      # not a PDF: never sent to Claude, uploaded to SharePoint as it is
@@ -44,8 +44,6 @@ WORK_LOCK = threading.RLock()
 _schema_ready = False
 
 
-def now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
 
 
 @contextmanager
@@ -82,6 +80,16 @@ def add_missing_columns(conn) -> None:
 
 
 MAIN_ROOT = DOCUMENTS_DIR.name    
+
+
+def _folders_relpath_is_unique(conn) -> bool:
+    """True for a folders table from before roots: relpath alone is UNIQUE."""
+    for idx in conn.execute("PRAGMA index_list(folders)").fetchall():
+        if idx["unique"]:
+            cols = [c["name"] for c in conn.execute(f"PRAGMA index_info('{idx['name']}')")]
+            if cols == ["relpath"]:
+                return True
+    return False
 
 
 def migrate_folders_to_roots(conn) -> None:
@@ -165,22 +173,9 @@ def set_meta(key: str, value: str, conn=None) -> None:
 
 
 # ---------- helpers ----------
-
-# def rel(p: Path) -> str:
-#     return p.relative_to(DOCUMENTS_DIR).as_posix()
-
-#new pass in root since not everything will be relative to documents now. most will still be but 
-#we need to add more directories
-def rel(p: Path, r: Path) -> str:
-    return p.relative_to(r).as_posix()
+# now(), rel(), sha256_of() and the other small helpers are in dbfunctions/helpers.py
 
 
-def sha256_of(path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(block)
-    return h.hexdigest()
 
 
 
@@ -260,9 +255,6 @@ def clear_sharepoint(file_ids=(), folder_ids=()) -> None:
 
 
 
-def mark_failed(file_id: str, error: str) -> None:
-    """The next add_new_items() puts failed files back with the unscanned ones (requeue_failed)."""
-    set_status([file_id], FAILED, error=error)
 
 
 
@@ -282,27 +274,12 @@ def files_for_ocr() -> pd.DataFrame:
 
 
 
-# ---------- file list for the UI (filter on the main file conditions) ----------
-
-LIST_COLUMNS = """uuid AS id, relpath, root_folder, current_name AS file, status, error,
-                  uploaded_to_sharepoint AS sharepoint, chunked, chunk_status, chunk_error,
-                  chunk_count, page_count, doc_type"""
+# ---------- file list for the UI: LIST_COLUMNS and list_files() are in queries/queries.py ----------
 
 
-def _yes_no(value):
-    """'yes' / 'no' / True / False / 1 / 0 -> 1 or 0; anything else (None, 'any', '') -> None."""
-    if value in (True, 1, "1", "yes", "true"):
-        return 1
-    if value in (False, 0, "0", "no", "false"):
-        return 0
-    return None
 
 
-# ---------- search chunks (api/claude_chunk.py, api/chunkBatchApi.py) ----------
+
+# ---------- search chunks: see chunks.py; record_run_usage() is in batches.py ----------
 
 
-def record_run_usage(batch_name: str, usage=None, files_done: int = 0, files_failed: int = 0) -> None:
-    """Add a run's usage and file counts to its batches row (for runs that
-    don't go through mark_processed, like chunking)."""
-    with connect() as conn:
-        _add_to_batch(conn, batch_name, usage, files_done=files_done, files_failed=files_failed)

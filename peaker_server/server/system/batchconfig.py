@@ -1,7 +1,7 @@
 from datetime import datetime
 import shutil, zipfile
 from system.paths import HISTORY_DIR, OUTPUT_DIR
-from server.system.db.dbfunctions.database import add_batch, set_batch_status
+from system.db.dbfunctions.batches import add_batch, set_batch_status
 
 def start_batch(prefix="file_process_batch"):
     """A new batch: its archive folder (the batch area the originals are copied

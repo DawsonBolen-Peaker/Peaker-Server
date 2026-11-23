@@ -23,8 +23,8 @@
 
 #add new files
 
-from server.services.Claude.batchApi import check_batches
-from server.system.db.dbfunctions.database import add_new_items
+from services.Claude.batchApi import check_batches
+from system.db.dbfunctions.files import add_new_items
 
 import time
 

@@ -3,7 +3,7 @@
     python server/check_file.py 170          (a file_id, or part of a file name)
 """
 import json, sys
-from server.system.db.dbfunctions.database import connect, get_meta
+from system.db.dbfunctions.database import connect, get_meta
 from system.paths import file_path
 
 

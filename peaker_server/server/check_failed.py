@@ -9,8 +9,9 @@ status update afterwards went wrong. The rest stay queued to run again.
 """
 import sys
 
-from server.system.db.dbfunctions.database import connect, FAILED, SCANNED, UNSCANNED, update_folder_flags
-from server.workers.processing.reconstructFile import read_pdf_id
+from system.db.dbfunctions.database import connect, FAILED, SCANNED, UNSCANNED
+from system.db.dbfunctions.folders import update_folder_flags
+from workers.processing.reconstructFile import read_pdf_id
 from system.paths import file_path
 
 

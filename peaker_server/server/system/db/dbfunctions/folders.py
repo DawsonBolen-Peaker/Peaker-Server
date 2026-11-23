@@ -1,21 +1,23 @@
+"""Rows in the folders table, and the names already used at the top of the SharePoint folder."""
+
+from pathlib import Path
+
+from system.db.dbfunctions.database import UNSCANNED, DUPLICATE, MAIN_ROOT, connect
+from system.db.dbfunctions.helpers import is_top_level, free_name
 
 
-def _folders_relpath_is_unique(conn) -> bool:
-    """True for a folders table from before roots: relpath alone is UNIQUE."""
-    for idx in conn.execute("PRAGMA index_list(folders)").fetchall():
-        if idx["unique"]:
-            cols = [c["name"] for c in conn.execute(f"PRAGMA index_info('{idx['name']}')")]
-            if cols == ["relpath"]:
-                return True
-    return False
-
-
-
-def is_top_level(relpath: str) -> bool:
-    """Directly inside a root. Every root is flattened onto the same SharePoint
-    folder, so only these can have the same name on SharePoint; deeper ones sit
-    under a parent folder that is already unique there."""
-    return Path(relpath).parent.as_posix() in ("", ".")
+def sharepoint_top_level_names(conn, not_folder_id=None, not_file_id=None) -> set:
+    """Names (casefolded; SharePoint ignores case) already used directly in the
+    SharePoint folder every root is flattened onto: top-level folders by their
+    SharePoint name and top-level files that can go up (not duplicates)."""
+    names = {r["n"].casefold() for r in conn.execute(
+        "SELECT COALESCE(sharepoint_name, name) AS n FROM folders WHERE parent_id IS NULL AND folder_id IS NOT ?",
+        (not_folder_id,))}
+    for r in conn.execute("SELECT relpath, current_name FROM files WHERE status != ? AND file_id IS NOT ?",
+                          (DUPLICATE, not_file_id)):
+        if is_top_level(r["relpath"]):
+            names.add(r["current_name"].casefold())
+    return names
 
 
 def folder_id_for(conn, relpath: str, root_folder: str = MAIN_ROOT):

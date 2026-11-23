@@ -3,16 +3,17 @@ import shutil, tempfile
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from pathlib import Path
 
-from server.services.Claude.claudeAgent import (build_context, plan_chunks, count_chunks, scan_chunk, merge_chunk_results,
+from services.Claude.claudeAgent import (build_context, plan_chunks, count_chunks, scan_chunk, merge_chunk_results,
                              pdf_page_count, ScanError)
-from server.system.db.dbfunctions.database import (WORK_LOCK, UNSCANNED, add_new_items, files_with_status,
-                         mark_processed, mark_failed, record_failed_usage)
-from server.services.finance.usage import empty_usage, add_usage, cost_usd
+from system.db.dbfunctions.database import WORK_LOCK, UNSCANNED
+from system.db.dbfunctions.files import add_new_items, files_with_status, mark_failed
+from system.db.dbfunctions.batches import mark_processed, record_failed_usage
+from services.finance.usage import empty_usage, add_usage, cost_usd
 from system.editConfigFiles import track_new_categories
-from server.workers.processing.processRequest import process_document
+from workers.processing.processRequest import process_document
 from system.batchconfig import start_batch, finish_batch
 from system.paths import file_path
-from server.services.Claude.claude_chunk import cut_scan_chunks, save_scan_chunks
+from services.Claude.claude_chunk import cut_scan_chunks, save_scan_chunks
 
 WORKERS = 4
 

@@ -254,7 +254,7 @@ def chunks_from_scan(pages: list[dict], result: dict, removed=()) -> list[dict]:
 
 def doc_meta_from_scan(result: dict) -> dict:
     """Document-level search fields from a scan result."""
-    from server.workers.processing.reconstructFile import keyword_list
+    from workers.processing.reconstructFile import keyword_list
     return {"title": result.get("full_title") or result.get("title") or "",
             "summary": result.get("summary") or "",
             "keywords": keyword_list(result)}
@@ -301,7 +301,7 @@ def chunk_tool() -> dict:
 def read_pdf_pages(path) -> list[tuple[int, str]]:
     """[(page_no, text), ...] from a PDF's text layer, cleaned of scanner OCR junk."""
     import pymupdf
-    from server.workers.processing.ocr import clean_scanner_text
+    from workers.processing.ocr import clean_scanner_text
     out = []
     with pymupdf.open(Path(path)) as doc:
         for i, page in enumerate(doc, 1):
@@ -403,7 +403,7 @@ def cut_scan_chunks(file_id: str, result: dict, removed=()):
     OCR pages). Returns the chunk rows, or the exception if they can't be cut;
     never raises, since the scan itself has already worked."""
     try:
-        from server.workers.processing.ocr import load_pages
+        from workers.processing.ocr import load_pages
         pages = load_pages(file_id)
         if not pages:
             raise RuntimeError("no OCR pages to cut search chunks from")
@@ -419,8 +419,8 @@ def save_scan_chunks(file_id: str, cut, result: dict) -> None:
     """Call after mark_processed with what cut_scan_chunks returned. A file
     whose chunks couldn't be made keeps chunked = 0 (chunk_status failed), so
     the standalone chunker can pick it up later. Never raises."""
-    from server.system.db.dbfunctions.database import save_chunks, chunk_failed
-    from server.services.Claude.claudeAgent import MODEL
+    from system.db.dbfunctions.chunks import save_chunks, chunk_failed
+    from services.Claude.claudeAgent import MODEL
     try:
         if isinstance(cut, Exception):
             raise cut

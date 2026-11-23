@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))     # server/
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))     # server/
 
 import json, math, threading
 from collections import defaultdict
@@ -36,13 +36,14 @@ from datetime import datetime
 
 from anthropic.types.messages.batch_create_params import Request
 
-from server.services.Claude.claude_chunk import (CUSTOM_ID_PREFIX, CHUNK_MODEL, CHUNKER_VERSION, is_chunk_request,
+from services.Claude.claude_chunk import (CUSTOM_ID_PREFIX, CHUNK_MODEL, CHUNKER_VERSION, is_chunk_request,
                               read_pdf_pages, read_pdf_meta, has_text, plan_parts, build_request,
                               extract_chunks, rows_from_parts)
-from server.system.db.dbfunctions.database import (WORK_LOCK, SCANNED, CHUNK_QUEUED, get_meta, set_meta, files_by_uuid,
-                         set_chunk_status, chunk_failed, save_chunks, add_batch, set_batch_status,
-                         set_message_batch_ids, record_run_usage, list_files)
-from server.services.finance.usage import empty_usage, usage_of, add_usage, cost_usd
+from system.db.dbfunctions.database import WORK_LOCK, SCANNED, CHUNK_QUEUED, get_meta, set_meta
+from system.db.dbfunctions.batches import add_batch, set_batch_status, set_message_batch_ids, record_run_usage
+from system.db.dbfunctions.chunks import files_by_uuid, set_chunk_status, chunk_failed, save_chunks
+from system.db.dbfunctions.queries.queries import list_files
+from services.finance.usage import empty_usage, usage_of, add_usage, cost_usd
 from system.paths import file_path
 
 JOBS_KEY = "chunk_jobs"
@@ -124,7 +125,7 @@ OUTPUT_PER_PAGE = 60           # ~one chunk (~120 tokens) per two pages
 
 def estimate_chunking(file_ids, batch: bool = True) -> dict:
     """A rough price from the page counts docs.db already has (no PDFs opened)."""
-    from server.services.Claude.claudeAgent import PRICES
+    from services.Claude.claudeAgent import PRICES
     rows = files_by_uuid(file_ids)
     ok = [r for r in rows if not is_chunkable(r)]
     pages = sum(r.get("page_count") or 10 for r in ok)
@@ -146,7 +147,7 @@ def submit_chunk_batch(file_ids, on_event=_no_events) -> dict:
     on_event gets ("chunk_total", n), ("chunk_sent", sent, n) and
     ("chunk_file", file_id, status, detail).
     Returns {"batches": [...], "sent", "skipped", "failed"}."""
-    from server.services.Claude.batchApi import _create_batches          # same upload (halves the batch on 413)
+    from services.Claude.batchApi import _create_batches          # same upload (halves the batch on 413)
     with WORK_LOCK:
         rows = files_by_uuid(file_ids)
         jobs = load_jobs()
@@ -260,7 +261,7 @@ def _finish_file(file_id: str, info: dict, answers: list, usage: dict) -> int:
 
 
 def apply_chunk_results(file_ids: list, jobs: dict, on_event=_no_events) -> tuple[int, int]:
-    from server.services.Claude.claudeAgent import get_client
+    from services.Claude.claudeAgent import get_client
     client = get_client()
     wanted = set(file_ids)
     answers = defaultdict(dict)                         # file_id -> {part: chunks | error str}
@@ -322,7 +323,7 @@ def check_chunk_batches(verbose=False, on_event=_no_events) -> dict:
         if verbose:
             print("No chunk batches waiting.")
         return progress
-    from server.services.Claude.claudeAgent import get_client
+    from services.Claude.claudeAgent import get_client
     client = get_client()
     ended, counts = set(), {}
     for batch_id in jobs["batches"]:
@@ -359,7 +360,7 @@ def check_chunk_batches(verbose=False, on_event=_no_events) -> dict:
 # ---------- regular API, straight away ----------
 
 def _chunk_one(row: dict) -> tuple[int, dict]:
-    from server.services.Claude.claudeAgent import get_client
+    from services.Claude.claudeAgent import get_client
     pages, meta, parts = _prepare(row)
     usage, answers = empty_usage("regular"), []
     for i, (first, last) in enumerate(parts):
@@ -425,7 +426,7 @@ if __name__ == "__main__":
     ap.add_argument("--check", action="store_true", help="check chunk batches once")
     ap.add_argument("--yes", action="store_true", help="don't ask before sending")
     args = ap.parse_args()
-    from server.system.db.dbfunctions.database import init_db
+    from system.db.dbfunctions.database import init_db
     init_db()
     if args.check:
         with WORK_LOCK:

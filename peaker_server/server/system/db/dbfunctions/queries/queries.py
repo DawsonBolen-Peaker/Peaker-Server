@@ -1,5 +1,17 @@
 #these are specifically going to be queries especially for my client side applications
 
+import pandas as pd
+
+from system.db.dbfunctions.database import SCANNED, SKIPPED, connect, read_df
+from system.db.dbfunctions.files import FILE_COLUMNS
+from system.db.dbfunctions.helpers import yes_no
+
+# file list for the UI (filter on the main file conditions)
+LIST_COLUMNS = """uuid AS id, relpath, root_folder, current_name AS file, status, error,
+                  uploaded_to_sharepoint AS sharepoint, chunked, chunk_status, chunk_error,
+                  chunk_count, page_count, doc_type"""
+
+
 def files_not_on_sharepoint(scanned_only: bool = True) -> pd.DataFrame:
     """Files not added to SharePoint yet; by default only the ones ready to go
     up: scanned, and skipped (not PDFs, which go up as they are)."""
@@ -57,7 +69,7 @@ def list_files(status=None, sharepoint=None, chunked=None, chunk_status=None, ro
     one_of("status", status)
     one_of("chunk_status", chunk_status)
     for column, value in (("uploaded_to_sharepoint", sharepoint), ("chunked", chunked)):
-        flag = _yes_no(value)
+        flag = yes_no(value)
         if flag is not None:
             where.append(f"{column} = ?")
             params.append(flag)

@@ -2,13 +2,13 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from app.search import search
-# from app.ClaudeSearch.claude_search import ask_claude, make_chat_title
+from services.api.search import search
+# from services.api.claude_search import ask_claude, make_chat_title
 # the file is claude_search_w_tool.py: imports are case sensitive, even on Windows
-from app.ClaudeSearch.claude_search_w_tool import ask_claude, MODEL as DEFAULT_MODEL
-from app.ClaudeSearch.claude_search import make_chat_title
-from app.fileroutes import get_file_data_from_chunk_id, get_file_data, get_file_data_sp
-from app.paths import file_path
+from services.api.claude_search_w_tool import ask_claude, MODEL as DEFAULT_MODEL
+from services.api.claude_search import make_chat_title
+from services.api.fileroutes import get_file_data_from_chunk_id, get_file_data, get_file_data_sp
+from system.paths import file_path
 
 
 #this whole folder is for api and client services, the other main folder processing will be for processes that automatically run in the background, like scanning and uploading to sharepoint

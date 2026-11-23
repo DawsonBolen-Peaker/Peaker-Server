@@ -1,9 +1,10 @@
 import json, re, shutil
 from pathlib import Path
 from system.paths import DOCUMENTS_DIR, root_dir
-from server.system.db.dbfunctions.database import sha256_of, top_level_names_for
-from server.workers.processing.reconstructFile import reconstruct_pdf
-from server.workers.processing import ocr
+from system.db.dbfunctions.helpers import sha256_of
+from system.db.dbfunctions.files import top_level_names_for
+from workers.processing.reconstructFile import reconstruct_pdf
+from workers.processing import ocr
 
 def safe_filename(name: str) -> str:
     name = re.sub(r'[<>:"/\\|?*\n\r\t]', "", name)

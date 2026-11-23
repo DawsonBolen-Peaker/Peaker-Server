@@ -10,9 +10,10 @@ Runs from before this tracking was added show zeros.
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))     # server/, so db / system import
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))     # server/, so db / system import
 
-from server.system.db.dbfunctions.database import batch_costs, connect
+from system.db.dbfunctions.database import connect
+from system.db.dbfunctions.batches import batch_costs
 
 COLUMNS = ["name", "api", "files_done", "files_failed", "total_pages", "image_pages", "requests",
            "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_usd"]

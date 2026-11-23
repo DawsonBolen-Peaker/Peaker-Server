@@ -5,7 +5,7 @@ from typing import Optional
 import anthropic
 from anthropic import beta_tool
 
-from app.search import search
+from services.api.search import search
 # keep find_json and first_text from your old file
 
 MODEL = "claude-sonnet-5-5"

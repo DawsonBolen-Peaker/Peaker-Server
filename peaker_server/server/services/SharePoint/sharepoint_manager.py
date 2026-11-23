@@ -3,13 +3,15 @@ import asyncio, json, os, sys, threading
 from pathlib import Path
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))     # server/
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))     # server/
 
-from server.system.db.dbfunctions.database import (folders_not_on_sharepoint, files_not_on_sharepoint, get_folder,
-                         mark_folder_sharepoint, mark_file_sharepoint,
-                         files_to_tag, set_file_tags, mark_file_tagged, is_top_level,
-                         sharepoint_owner, rename_folder_on_sharepoint, rename_file_for_sharepoint,
-                         top_level_names_for, top_level_names_for_folder)
+from system.db.dbfunctions.database import get_folder, sharepoint_owner
+from system.db.dbfunctions.helpers import is_top_level
+from system.db.dbfunctions.folders import (mark_folder_sharepoint, rename_folder_on_sharepoint,
+                                           top_level_names_for_folder)
+from system.db.dbfunctions.files import (mark_file_sharepoint, files_to_tag, set_file_tags, mark_file_tagged,
+                                         rename_file_for_sharepoint, top_level_names_for)
+from system.db.dbfunctions.queries.queries import folders_not_on_sharepoint, files_not_on_sharepoint
 from system.paths import OUTPUT_DIR, file_path
 
 # Library columns the scan's tags go in (internal names; created as text
@@ -248,7 +250,7 @@ async def _tag_files(sp, client) -> tuple[int, int]:
 
 
 async def _sync(on_event) -> dict:
-    from server.services.SharePoint import SharePointApi as sp       # reads the SHAREPOINT_* settings on import
+    from services.SharePoint import SharePointApi as sp       # reads the SHAREPOINT_* settings on import
     from azure.identity.aio import ClientSecretCredential
     from msgraph import GraphServiceClient
 

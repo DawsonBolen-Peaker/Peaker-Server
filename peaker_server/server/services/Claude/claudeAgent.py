@@ -4,9 +4,9 @@ from pathlib import Path
 from pypdf import PdfReader
 from system.paths import file_path
 from system.editConfigFiles import config_list
-from server.system.db.dbfunctions.database import load_folders
-from server.services.finance.usage import usage_of, take_usage
-from server.services.Claude.claude_chunk import (SCAN_PROMPT_SECTION, scan_tool_property, scan_lines,
+from system.db.dbfunctions.database import load_folders
+from services.finance.usage import usage_of, take_usage
+from services.Claude.claude_chunk import (SCAN_PROMPT_SECTION, scan_tool_property, scan_lines,
                                render_numbered, strip_line_numbers)
 
 
@@ -179,7 +179,7 @@ IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                ".gif": "image/gif", ".webp": "image/webp"}
 TEXT_TYPES = {".txt", ".md", ".csv", ".json", ".xml", ".html"}
 SUPPORTED_TYPES = {".pdf", *IMAGE_TYPES, *TEXT_TYPES}
-from server.workers.processing.ocr import OCR_TYPES      # read locally first (see processing/ocr.py)
+from workers.processing.ocr import OCR_TYPES      # read locally first (see processing/ocr.py)
 
 # Used only when the config list files are missing or empty.
 DEFAULT_DOC_TYPES = ["work procedure", "customer info", "product spec", "part info", "financial record", "drawing"]
@@ -348,7 +348,7 @@ def ocr_blocks(path: Path, file_id: str, page_start: int, page_end: int) -> list
     numbered from 1 within the range and every line numbered from 1 for the
     search chunks (api/claude_chunk.py rebuilds the same numbering when the
     result comes back), then an image of each page that scored poorly."""
-    from server.workers.processing.ocr import ocr_document, page_image, image_reason
+    from workers.processing.ocr import ocr_document, page_image, image_reason
     pages = ocr_document(path, file_id)[page_start - 1:page_end]
     text = render_numbered(scan_lines(pages),
                            page_label=lambda local: f"\n[[Page {local}]] (score {pages[local - 1]['score']:.0f})")
@@ -461,7 +461,7 @@ def pdf_page_count(path):
 
 def scan_document(file_id: str) -> dict:
     import tempfile
-    from server.system.db.dbfunctions.database import get_file
+    from system.db.dbfunctions.files import get_file
     row = get_file(file_id)
     if row is None:
         raise ValueError(f"No file in docs.db with id: {file_id}")
@@ -500,7 +500,7 @@ OUTPUT_PER_PAGE = 60         # search_chunks: about one chunk (~120 tokens) per 
 def estimate_cost(rows, batch: bool) -> dict:
     """A rough price for scanning these files (rows with "id" and "relpath"),
     from their OCR pages in docs.db. Files not read yet are counted as unknown."""
-    from server.system.db.dbfunctions.database import page_totals
+    from system.db.dbfunctions.files import page_totals
     ctx = build_context()
     prompt_tokens = (len(ctx.system[0]["text"]) + len(json.dumps(ctx.tool))) / CHARS_PER_TOKEN
     totals = page_totals(r["id"] for r in rows)

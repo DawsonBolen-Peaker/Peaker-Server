@@ -1,23 +1,17 @@
-import hashlib, os, shutil, sqlite3, threading, uuid
-from contextlib import contextmanager
-from datetime import datetime
+"""Rows in the files table: finding new files on disk, their status, OCR pages and SharePoint record."""
+
+import uuid
 from pathlib import Path
 import pandas as pd
 
-from server.system.db.schema import SCHEMA, ADDED_COLUMNS, INDEXES_ON_ADDED, CHUNK_SCHEMA
-from system.paths import DB_PATH, DOCUMENTS_DIR, ROOTS, root_dir, file_path
-from server.workers.processing.reconstructFile import read_pdf_id
-
-UNSCANNED, SCANNED, IN_PROGRESS, FAILED, DUPLICATE = "unscanned", "scanned", "in progress", "failed", "duplicate"
-SKIPPED = "skipped"      # not a PDF: never sent to Claude, uploaded to SharePoint as it is
-UNKNOWN_BATCH = "unknown"
-
-# files.chunk_status values ('' = never chunked)
-CHUNK_QUEUED, CHUNK_DONE, CHUNK_FAILED = "queued", "done", "failed"
-
-# files.ocr_status / ocr_service values (same as migrations/add_ocr_columns.py in scan-manager)
-OCR_SCANNED, NO_OCR = "scanned", "no ocr"
-OCR_BY_SCANNER, OCR_BY_CLAUDE = "scanner", "claude"
+from system.paths import DOCUMENTS_DIR, ROOTS, root_dir, file_path
+from workers.processing.reconstructFile import read_pdf_id
+from system.db.dbfunctions.database import (UNSCANNED, SCANNED, FAILED, DUPLICATE, SKIPPED, OCR_SCANNED, NO_OCR,
+                                            OCR_BY_SCANNER, SYSTEM_VERSION, MAIN_ROOT, connect, read_df)
+from system.db.dbfunctions.folders import (sharepoint_top_level_names, folder_id_for, add_folder,
+                                           update_folder_flags)
+from system.db.dbfunctions.helpers import (now, rel, sha256_of, is_top_level, free_name, is_pdf,
+                                           is_system_file, is_accepted_file, join_departments)
 
 
 
@@ -26,35 +20,9 @@ OCR_BY_SCANNER, OCR_BY_CLAUDE = "scanner", "claude"
 
 
 
-def sharepoint_top_level_names(conn, not_folder_id=None, not_file_id=None) -> set:
-    """Names (casefolded; SharePoint ignores case) already used directly in the
-    SharePoint folder every root is flattened onto: top-level folders by their
-    SharePoint name and top-level files that can go up (not duplicates)."""
-    names = {r["n"].casefold() for r in conn.execute(
-        "SELECT COALESCE(sharepoint_name, name) AS n FROM folders WHERE parent_id IS NULL AND folder_id IS NOT ?",
-        (not_folder_id,))}
-    for r in conn.execute("SELECT relpath, current_name FROM files WHERE status != ? AND file_id IS NOT ?",
-                          (DUPLICATE, not_file_id)):
-        if is_top_level(r["relpath"]):
-            names.add(r["current_name"].casefold())
-    return names
 
 
 
-def free_name(name: str, root_folder: str, taken, is_file: bool = False) -> str:
-    """name if it isn't taken, else name with its root added, e.g.
-    "Manuals (Product Info Library)" or "Price list (Product Info Library).pdf",
-    with a number after the root if that is taken too."""
-    if name.casefold() not in taken:
-        return name
-    stem, suffix = (Path(name).stem, Path(name).suffix) if is_file else (name, "")
-    n = 1
-    while True:
-        tag = root_folder if n == 1 else f"{root_folder} {n}"
-        candidate = f"{stem} ({tag}){suffix}"
-        if candidate.casefold() not in taken:
-            return candidate
-        n += 1
 
 
 def rename_top_level_file(conn, path: Path, root_folder: str, not_file_id=None) -> Path:
@@ -94,13 +62,9 @@ def _same_document(conn, path: Path):
     return None, None, digest, pdf_id
 
 
-# Files Windows, macOS and Office make on their own; never documents.
-SYSTEM_FILES = {"thumbs.db", "ehthumbs.db", "desktop.ini", ".ds_store"}
+# SYSTEM_FILES / is_system_file() and is_accepted_file() are in helpers.py.
 
 
-def is_system_file(name: str) -> bool:
-    name = name.lower()
-    return name in SYSTEM_FILES or name.startswith(("~$", "._"))
 
 
 # The roots files come from are ROOTS in system/paths.py.
@@ -140,8 +104,6 @@ def ocr_status_of(path: Path):
     return pdf_facts(path)[0]
 
 
-def is_pdf(name: str) -> bool:
-    return Path(name).suffix.lower() == ".pdf"
 
 
 def skip_non_pdfs(conn) -> int:
@@ -156,19 +118,7 @@ def skip_non_pdfs(conn) -> int:
         print(f"{len(ids)} files that aren't PDFs set to skipped (only PDFs go to Claude)")
     return len(ids)
 
-accepted_file_types = [
-    ".pdf",
-    ".docx", ".doc",
-    ".xlsx", ".xls", ".csv",
-    ".pptx", ".ppt",
-    ".jpg", ".jpeg", ".png", ".tif", ".tiff",
-    ".txt"
-]
 
-def is_accepted_file(n):
-    last_index = n.rfind('.')
-    ext = n[last_index:]
-    return ext in accepted_file_types
 
 
 def add_new_items() -> list[str]:
@@ -392,3 +342,7 @@ def reset_failed() -> int:
     failed = files_with_status(FAILED)["id"].tolist()
     set_status(failed, UNSCANNED)
     return len(failed)
+
+def mark_failed(file_id: str, error: str) -> None:
+    """The next add_new_items() puts failed files back with the unscanned ones (requeue_failed)."""
+    set_status([file_id], FAILED, error=error)

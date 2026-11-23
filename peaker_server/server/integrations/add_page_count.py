@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pypdf import PdfReader
-from server.system.db.dbfunctions.database import connect
+from system.db.dbfunctions.database import connect
 from system.paths import DB_PATH, file_path
 
 COUNT_FILE = Path(__file__).resolve().parents[2] / "totalpagecount.txt"

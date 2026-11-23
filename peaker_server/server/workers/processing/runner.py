@@ -1,10 +1,11 @@
 """One entry point for "process everything": picks the Batch API or the
 regular API by workload size."""
-from server.system.db.dbfunctions.database import WORK_LOCK, UNSCANNED, add_new_items, files_with_status
-from server.workers.processing.localScan import run_local
-from server.services.Claude.batchApi import submit_to_batch
-from server.services.Claude.claudeAgent import estimate_cost
-from server.workers.processing.ocr import ocr_unscanned
+from system.db.dbfunctions.database import WORK_LOCK, UNSCANNED
+from system.db.dbfunctions.files import add_new_items, files_with_status
+from workers.processing.localScan import run_local
+from services.Claude.batchApi import submit_to_batch
+from services.Claude.claudeAgent import estimate_cost
+from workers.processing.ocr import ocr_unscanned
 
 BATCH_THRESHOLD = 5   
 

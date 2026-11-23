@@ -1,12 +1,12 @@
 import importlib.util, multiprocessing, sys
-from server.system.db.dbfunctions.database import (WORK_LOCK, UNSCANNED, IN_PROGRESS, init_db, add_new_items,
-                         files_with_status)
+from system.db.dbfunctions.database import WORK_LOCK, UNSCANNED, IN_PROGRESS, init_db
+from system.db.dbfunctions.files import add_new_items, files_with_status
 from system.editConfigFiles import ensure_config
 from system.paths import SERVER_DIR
-from server.workers.processing.localScan import preview
-from server.services.Claude.batchApi import BatchPoller, check_batches
-from server.workers.processing.runner import run_all, uses_batch, BATCH_THRESHOLD, estimate
-from server.services.SharePoint.sharepoint_manager import sync_to_sharepoint
+from workers.processing.localScan import preview
+from services.Claude.batchApi import BatchPoller, check_batches
+from workers.processing.runner import run_all, uses_batch, BATCH_THRESHOLD, estimate
+from services.SharePoint.sharepoint_manager import sync_to_sharepoint
 
 PREVIEW_LIMIT = 50  
 
