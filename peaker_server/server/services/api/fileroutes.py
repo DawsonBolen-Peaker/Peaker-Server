@@ -53,6 +53,7 @@ def get_file_data_from_chunk_id(chunk_uuid: str) -> dict | None:
 def get_file_data(file_id: str):
     """relpath, root_folder and current_name of a file (by uuid); file_path() gives where it is."""
     with closing(sqlite3.connect(_db_path())) as conn:
+        conn.row_factory = sqlite3.Row      # file_path() reads the row by column name
         return conn.execute("SELECT relpath, root_folder, current_name FROM files WHERE uuid = ?",
                             (file_id,)).fetchone()
 

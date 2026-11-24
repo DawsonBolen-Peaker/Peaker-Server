@@ -10,7 +10,8 @@ from system.db.dbfunctions.helpers import is_top_level
 from system.db.dbfunctions.folders import (mark_folder_sharepoint, rename_folder_on_sharepoint,
                                            top_level_names_for_folder)
 from system.db.dbfunctions.files import (mark_file_sharepoint, files_to_tag, set_file_tags, mark_file_tagged,
-                                         rename_file_for_sharepoint, top_level_names_for)
+                                         rename_file_for_sharepoint, top_level_names_for,
+                                         mark_sharepoint_failed, sharepoint_upload_name)
 from system.db.dbfunctions.queries.queries import folders_not_on_sharepoint, files_not_on_sharepoint
 from system.paths import OUTPUT_DIR, file_path
 
@@ -137,17 +138,21 @@ async def _free_top_level_path(sp, client, row, path, parent_sp):
     """A file directly inside a root lands in the SharePoint folder every root
     is flattened onto, where an upload replaces whatever has its name. If that
     name is another docs.db folder's or file's (there, or waiting to go up),
-    rename the file itself first. Returns its path now."""
+    give it a new name first: on disk for Locomotive_Scans files, on SharePoint
+    only for files in the other roots (those are never renamed or moved).
+    Returns (path, name to upload as)."""
+    name = sharepoint_upload_name(row["id"]) or path.name
     for _ in range(MAX_RENAMES):
-        clash = path.name.casefold() in top_level_names_for(row["id"])
+        clash = name.casefold() in top_level_names_for(row["id"])
         if not clash:
-            item = await _find_child(sp, client, parent_sp, path.name)
+            item = await _find_child(sp, client, parent_sp, name)
             owner = item is not None and sharepoint_owner(_item_id(item))
             # no row owns it: our own earlier upload of this file (a rescan clears its id), so replace it
             clash = bool(owner) and owner != ("file", row["id"])
         if not clash:
-            return path
-        path = rename_file_for_sharepoint(row["id"], also_taken=path.name)
+            return path, name
+        path = rename_file_for_sharepoint(row["id"], also_taken=name)
+        name = sharepoint_upload_name(row["id"]) or path.name
     raise RuntimeError(f"still no free name after {MAX_RENAMES} tries")
 
 
@@ -167,14 +172,22 @@ async def _upload_files(sp, client, on_event) -> tuple[int, int]:
                     raise RuntimeError("its folder isn't on SharePoint yet")
             if not path.is_file():
                 raise FileNotFoundError(path)
+            name = None
             if is_top_level(row["relpath"]):
-                path = await _free_top_level_path(sp, client, row, path, parent_sp)
-            item = await sp.upload_file(client, path, parent_sp)
+                path, name = await _free_top_level_path(sp, client, row, path, parent_sp)
+            else:
+                name = sharepoint_upload_name(row["id"])
+            item = await sp.upload_file(client, path, parent_sp, name=name)
             mark_file_sharepoint(row["id"], _item_id(item))
             done += 1
         except Exception as e:
             failed += 1
             print(f"  SharePoint: FAILED {row['relpath']} - {e}")
+            # remembered, so searchSharepoint.check_failed_uploads() can find it if it's uploaded by hand
+            try:
+                mark_sharepoint_failed(row["id"], f"{type(e).__name__}: {e}")
+            except Exception as e2:
+                print(f"  could not record the failure in docs.db: {e2}")
         on_event("sharepoint_progress", n, len(files))
     return done, failed
 
@@ -268,7 +281,8 @@ async def _sync(on_event) -> dict:
 
 
 def sync_to_sharepoint(on_event=_no_events):
-    """Upload every folder and scanned file that isn't on SharePoint yet.
+    """Upload every folder and scanned PDF that isn't on SharePoint yet (other
+    file types are only tracked; they go up on request).
     Returns counts, or None when SharePoint isn't configured or a sync is already running."""
     if not is_configured():
         print("SharePoint isn't set up in .env (SHAREPOINT_*); skipping upload.")

@@ -19,7 +19,7 @@ from system.db.schema import SCHEMA, ADDED_COLUMNS, INDEXES_ON_ADDED, CHUNK_SCHE
 from system.paths import DB_PATH, DOCUMENTS_DIR
 
 UNSCANNED, SCANNED, IN_PROGRESS, FAILED, DUPLICATE = "unscanned", "scanned", "in progress", "failed", "duplicate"
-SKIPPED = "skipped"      # not a PDF: never sent to Claude, uploaded to SharePoint as it is
+SKIPPED = "skipped"      # not a PDF: never sent to Claude, and only tracked: it goes to SharePoint only on request
 UNKNOWN_BATCH = "unknown"
 
 # files.chunk_status values ('' = never chunked)

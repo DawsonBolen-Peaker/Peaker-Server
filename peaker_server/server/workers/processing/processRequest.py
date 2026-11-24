@@ -1,7 +1,7 @@
 import json, re, shutil
 from pathlib import Path
 from system.paths import DOCUMENTS_DIR, root_dir
-from system.db.dbfunctions.helpers import sha256_of
+from system.db.dbfunctions.helpers import sha256_of, is_scanner_default_name
 from system.db.dbfunctions.files import top_level_names_for
 from workers.processing.reconstructFile import reconstruct_pdf
 from workers.processing import ocr
@@ -20,6 +20,19 @@ def folder_metadata(relpath: str) -> dict:
         "parent_folder": parts[-2] if len(parts) > 1 else "root",
         "folder_keywords": list(parts),
     }
+
+def can_rename(src: Path, root: Path) -> bool:
+    """Claude's suggested_filename is used only for files in Locomotive_Scans
+    (DOCUMENTS_DIR) that still have a scanner's default name (Doc0337,
+    Onesided0085, upstairs_double_sided_0001, ...). Every other name is kept."""
+    return root == DOCUMENTS_DIR and is_scanner_default_name(src.name)
+
+
+def can_move(src: Path, root: Path) -> bool:
+    """Only files at the top of Locomotive_Scans are filed into a folder. Files
+    in the other roots are never moved or renamed."""
+    return root == DOCUMENTS_DIR and src.parent == DOCUMENTS_DIR
+
 
 def process_document(file_id, relpath, data, folders, archive_dir, out_dir, root_folder=None) -> dict:
     """Archive the original, rebuild it under its new name and folder, and write
@@ -45,17 +58,24 @@ def process_document(file_id, relpath, data, folders, archive_dir, out_dir, root
     #    to one of its folders that exists (folders are the documents folder's
     #    only; files in the other roots stay in their folder)
     folder = data.get("destination_folder", "NONE")
-    dest_dir = DOCUMENTS_DIR / folder if (src.parent == DOCUMENTS_DIR and folder in folders) else src.parent
+    dest_dir = DOCUMENTS_DIR / folder if (can_move(src, root) and folder in folders) else src.parent
 
-    # 3. name, with (1), (2) as the last-resort tiebreaker. A file left at the
-    #    top of a root also needs a name no other root's top-level file or
-    #    folder has, since all roots share one folder on SharePoint.
-    base = safe_filename(data.get("suggested_filename") or src.stem)
-    taken = top_level_names_for(file_id) if dest_dir == root else set()
-    dest, i = dest_dir / f"{base}{src.suffix}", 1
-    while (dest.exists() and dest != src) or dest.name.casefold() in taken:
-        dest = dest_dir / f"{base} ({i}){src.suffix}"
-        i += 1
+    # 3. name: Claude's suggestion only replaces a scanner default name (see
+    #    can_rename); otherwise the file keeps its own. (1), (2) is the
+    #    last-resort tiebreaker. A Locomotive_Scans file left at its top also
+    #    needs a name no other root's top-level file or folder has, since all
+    #    roots share one folder on SharePoint. Files in the other roots keep
+    #    their name and place no matter what; a SharePoint name clash for them
+    #    is handled at upload with files.sharepoint_name.
+    if root != DOCUMENTS_DIR:
+        dest = src
+    else:
+        base = safe_filename(data.get("suggested_filename") or src.stem) if can_rename(src, root) else src.stem
+        taken = top_level_names_for(file_id) if dest_dir == root else set()
+        dest, i = dest_dir / f"{base}{src.suffix}", 1
+        while (dest.exists() and dest != src) or (dest != src and dest.name.casefold() in taken):
+            dest = dest_dir / f"{base} ({i}){src.suffix}"
+            i += 1
     new_relpath = dest.relative_to(root).as_posix()
 
     # 4. rebuild the PDF straight away at its new name: blank pages out, metadata,

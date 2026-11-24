@@ -14,7 +14,12 @@ from system.db.dbfunctions.helpers import (now, rel, sha256_of, is_top_level, fr
 
 def rename_top_level_file(conn, path: Path, root_folder: str, not_file_id=None) -> Path:
     """Rename a file directly inside a root (on disk) when a top-level file or
-    folder from another root has its name on SharePoint. Returns its path now."""
+    folder from another root has its name on SharePoint. Returns its path now.
+    Only files in Locomotive_Scans (MAIN_ROOT) are ever renamed on disk; a file
+    in another root keeps its name, and the SharePoint upload gives it a
+    different name there instead (rename_file_for_sharepoint)."""
+    if (root_folder or MAIN_ROOT) != MAIN_ROOT:
+        return path
     taken = sharepoint_top_level_names(conn, not_file_id=not_file_id)
     new_name = free_name(path.name, root_folder, taken, is_file=True)
     if new_name == path.name:
@@ -96,8 +101,12 @@ def skip_non_pdfs(conn) -> int:
 
 
 def add_new_items() -> list[str]:
-    if not DOCUMENTS_DIR.is_dir():
-        raise FileNotFoundError(f"Documents folder not found: {DOCUMENTS_DIR} (check NETWORK_ROOT in .env)")
+    """Add files and folders under every root (system/paths.py ROOTS) that
+    docs.db doesn't know yet. One root that can't be reached is skipped; the
+    others are still read. Returns the relpaths of the new, unscanned files."""
+    if not any(root.is_dir() for root in ROOTS):
+        raise FileNotFoundError(f"None of the root folders were found: {', '.join(map(str, ROOTS))}"
+                                " (check NETWORK_IP in .env)")
     added, checked = [], 0
     with connect() as conn:
         known_folders = {(r["root_folder"], r["relpath"])
@@ -203,9 +212,34 @@ def mark_file_sharepoint(file_id: str, sp_id: str) -> None:
     """Record that a file (by uuid) is on SharePoint with id sp_id."""
     with connect() as conn:
         cur = conn.execute("UPDATE files SET uploaded_to_sharepoint = 1, sharepoint_id = ?,"
-                           " sharepoint_tagged = 0 WHERE uuid = ?", (sp_id, file_id))
+                           " sharepoint_tagged = 0, sharepoint_error = '', sharepoint_failed_at = NULL"
+                           " WHERE uuid = ?", (sp_id, file_id))
         if cur.rowcount == 0:
             raise ValueError(f"No file in docs.db with id: {file_id}")
+
+
+def mark_sharepoint_failed(file_id: str, error: str) -> None:
+    """Record that uploading a file (by uuid) failed, so searchSharepoint.py can
+    look for it later in case it was uploaded by hand."""
+    with connect() as conn:
+        conn.execute("UPDATE files SET sharepoint_error = ?, sharepoint_failed_at = ? WHERE uuid = ?",
+                     (" ".join(str(error).split())[:500] or "upload failed", now(), file_id))
+
+
+def failed_sharepoint_uploads() -> list[dict]:
+    """Files whose last SharePoint upload failed and that still aren't on SharePoint,
+    the ones checked longest ago first."""
+    with connect() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT uuid AS id, relpath, root_folder, current_name, sharepoint_name, folder_id,"
+            " sharepoint_error, sharepoint_checked_at FROM files"
+            " WHERE uploaded_to_sharepoint = 0 AND sharepoint_error != ''"
+            " ORDER BY COALESCE(sharepoint_checked_at, '') , relpath")]
+
+
+def mark_sharepoint_checked(file_id: str) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE files SET sharepoint_checked_at = ? WHERE uuid = ?", (now(), file_id))
 
 
 def files_to_tag() -> pd.DataFrame:
@@ -231,14 +265,23 @@ def mark_file_tagged(file_id: str) -> None:
 
 
 def rename_file_for_sharepoint(file_id: str, also_taken: str = "") -> Path:
-    """Rename a top-level file on disk (and in docs.db) because its name is
-    taken on SharePoint. Returns its new path."""
+    """Give a top-level file a new name because its name is taken on SharePoint.
+    In Locomotive_Scans the file is renamed on disk (and in docs.db). Files in
+    every other root are never renamed or moved: only their SharePoint name
+    (files.sharepoint_name) changes. Returns the file's path, which is the same
+    path for other roots; sharepoint_upload_name() gives the name to upload as."""
     with connect() as conn:
         row = conn.execute("SELECT * FROM files WHERE uuid = ?", (file_id,)).fetchone()
         path = file_path(row)
+        current = row["sharepoint_name"] or row["current_name"]
         taken = sharepoint_top_level_names(conn, not_file_id=row["file_id"])
-        taken |= {row["current_name"].casefold(), also_taken.casefold()}
+        taken |= {current.casefold(), also_taken.casefold()}
         new_name = free_name(row["current_name"], row["root_folder"], taken, is_file=True)
+        if (row["root_folder"] or MAIN_ROOT) != MAIN_ROOT:
+            conn.execute("UPDATE files SET sharepoint_name = ? WHERE file_id = ?", (new_name, row["file_id"]))
+            print(f"{row['root_folder']}/{row['current_name']} goes up to SharePoint as {new_name}"
+                  " (the name is taken there; the file itself keeps its name)")
+            return path
         while path.with_name(new_name).exists():
             taken.add(new_name.casefold())
             new_name = free_name(row["current_name"], row["root_folder"], taken, is_file=True)
@@ -250,18 +293,32 @@ def rename_file_for_sharepoint(file_id: str, also_taken: str = "") -> Path:
     return new_path
 
 
+def sharepoint_upload_name(file_id: str) -> str | None:
+    """The name a file (by uuid) goes up to SharePoint as: its SharePoint name if
+    it has one, else its name on disk."""
+    with connect() as conn:
+        row = conn.execute("SELECT COALESCE(sharepoint_name, current_name) AS n FROM files WHERE uuid = ?",
+                           (file_id,)).fetchone()
+    return row["n"] if row else None
+
+
 def get_files_for_sharepoint():
+    """Scanned PDFs not on SharePoint yet. Other file types are only tracked;
+    they go up on request, never on their own."""
     with connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM files WHERE status = ? AND uploaded_to_sharepoint = ? AND ",
-            ("scanned", 0),
-        ).fetchall()
+            "SELECT * FROM files WHERE status = ? AND uploaded_to_sharepoint = 0"
+            " AND LOWER(current_name) LIKE '%.pdf'", (SCANNED,)).fetchall()
     return rows
 
 
 def getDocsForIntel():
+    """Unscanned PDFs in every root whose text layer is the scanner's or missing,
+    for Document Intelligence (services/Azure/add_ocr.py)."""
     with connect() as conn:
-        rows = conn.execute("SELECT * FROM files WHERE ocr_service ? OR ocr_status = ? AND status = ?", ('scanner', 'none', 'unscanned')).fetchall()
+        rows = conn.execute("SELECT * FROM files WHERE status = ? AND LOWER(current_name) LIKE '%.pdf'"
+                            " AND (ocr_service = ? OR ocr_status = ? OR ocr_status IS NULL)",
+                            (UNSCANNED, OCR_BY_SCANNER, NO_OCR)).fetchall()
     return rows
 
 def update_ocr_service_intel(id):

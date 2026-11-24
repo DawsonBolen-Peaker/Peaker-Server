@@ -28,6 +28,7 @@ from system.db.dbfunctions.files import add_new_items
 import time
 from services.Azure.add_ocr import process_files
 from services.SharePoint.sharepoint_manager import sync_to_sharepoint
+from services.SharePoint.searchSharepoint import maybe_check_failed_uploads
 
 
 #chunking is kidn of part of db syncing but it is a large very important process within this system so should keep it seperate
@@ -66,6 +67,12 @@ def mainLoop():
         process_files()
 
         sync_to_sharepoint()
+
+        #once in a while (every few hours), look on SharePoint for failed uploads that were added by hand
+        try:
+            maybe_check_failed_uploads()
+        except Exception as e:
+            print(f"SharePoint: checking failed uploads didn't work this time - {e}")
 
         #upload to sharepoint
         time.sleep(30)

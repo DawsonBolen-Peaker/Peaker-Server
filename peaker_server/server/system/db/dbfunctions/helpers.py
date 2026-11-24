@@ -1,4 +1,4 @@
-import hashlib
+import hashlib, re
 from datetime import datetime
 from pathlib import Path
 
@@ -45,10 +45,26 @@ accepted_file_types = [
     ".txt"
 ]
 
-def is_accepted_file(n):
-    last_index = n.rfind('.')
-    ext = n[last_index:]
-    return ext in accepted_file_types
+def is_accepted_file(n) -> bool:
+    """File types picked up at all (any case: Scan.PDF counts)."""
+    return Path(n).suffix.lower() in accepted_file_types
+
+
+# ---------- scanner default names ----------
+# The only names Claude may replace: what the scanners call a file, e.g. Doc0337,
+# Onesided0085, upstairs_double_sided_0001, upstairs_one_sided_0001, and copies
+# like upstairs_double_sided_0002-1 or "Doc0337 (2)". Every other name is a
+# person's and stays as it is.
+SCANNER_NAME = re.compile(
+    r"(?:upstairs[ _-]?)?(?:doc|one[ _-]?sided|double[ _-]?sided)[ _-]?\d+(?:[ _-]\d+)?(?:\s*\(\d+\))?",
+    re.IGNORECASE)
+
+
+def is_scanner_default_name(name: str) -> bool:
+    """True when a file name (with or without its extension) is a scanner's
+    numbered default name, so Claude may give it a real one."""
+    stem = Path(name).stem if Path(name).suffix.lower() in accepted_file_types else name
+    return bool(SCANNER_NAME.fullmatch(stem.strip()))
 
 # ---------- names on SharePoint ----------
 

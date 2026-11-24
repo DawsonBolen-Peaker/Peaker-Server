@@ -13,10 +13,10 @@ def sharepoint_top_level_names(conn, not_folder_id=None, not_file_id=None) -> se
     names = {r["n"].casefold() for r in conn.execute(
         "SELECT COALESCE(sharepoint_name, name) AS n FROM folders WHERE parent_id IS NULL AND folder_id IS NOT ?",
         (not_folder_id,))}
-    for r in conn.execute("SELECT relpath, current_name FROM files WHERE status != ? AND file_id IS NOT ?",
-                          (DUPLICATE, not_file_id)):
+    for r in conn.execute("SELECT relpath, COALESCE(sharepoint_name, current_name) AS n FROM files"
+                          " WHERE status != ? AND file_id IS NOT ?", (DUPLICATE, not_file_id)):
         if is_top_level(r["relpath"]):
-            names.add(r["current_name"].casefold())
+            names.add(r["n"].casefold())
     return names
 
 

@@ -22,10 +22,12 @@ SMALL_LIMIT = 4 * 1024 * 1024
 CHUNK = 5 * 1024 * 1024 
 
 
-async def upload_file(client, f: Path, parent_id: str = "root"):
+async def upload_file(client, f: Path, parent_id: str = "root", name: str | None = None):
+    """Upload f under parent_id, as name when given (a file outside Locomotive_Scans
+    can have a different name on SharePoint than on disk), else as its own name."""
     data = f.read_bytes()
     size = len(data)
-    path_item = f"{parent_id}:/{f.name}:"
+    path_item = f"{parent_id}:/{name or f.name}:"
 
     if size <= SMALL_LIMIT:
         item = await (
@@ -105,10 +107,12 @@ async def postFolderToSharepoint(
 
 
 #this can still just happen after file upload but yeah
+# (sharepoint_manager.sync_to_sharepoint does the real upload, with folders and name clashes;
+#  get_files_for_sharepoint only returns scanned PDFs, other file types go up on request)
 def upload_unadded_sharepoint():
     files = get_files_for_sharepoint()
     for file in files:
-        postFileToSharepoint()
+        print(f"waiting for SharePoint: {file['root_folder']}/{file['relpath']}")
 
 
 

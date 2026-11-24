@@ -4,7 +4,8 @@ from pathlib import Path
 from pypdf import PdfReader
 from system.paths import file_path
 from system.editConfigFiles import config_list
-from system.db.dbfunctions.database import load_folders
+from system.db.dbfunctions.database import load_folders, MAIN_ROOT
+from system.db.dbfunctions.helpers import is_scanner_default_name
 from services.finance.usage import usage_of, take_usage
 from services.Claude.claude_chunk import (SCAN_PROMPT_SECTION, scan_tool_property, scan_lines,
                                render_numbered, strip_line_numbers)
@@ -56,9 +57,10 @@ You are document_scanner. You review scanned and digital business documents so t
 INPUTS (supplied with every request)
 =====================================================================
 - The document's text, already read by local OCR, one block per page: a line [[Page N]] (score S) then that page's text, each line numbered like [12] (see SEARCH CHUNKS). S is the OCR's confidence from 0 to 100. Pages with no text found say so.
-- An image of each page whose OCR scored poorly (under 75), labelled "Image of page N". These are usually poor scans, drawings, handwriting, sideways pages or blank pages. Pages above 75 are sent as text only.
+- An image of each page whose OCR scored poorly (under 75), labelled "Image of page N". These are usually drawings and diagrams, but can be poor scans, handwriting, sideways pages or blank pages. Pages above 75 are sent as text only.
 - For a long document, one page range at a time.
 - current_folder and parent_folder: where the file sits now ("root" if at the top).
+- rename_allowed and move_allowed: whether the calling code will use your suggested_filename and destination_folder for this file (see NAMING and FOLDER PLACEMENT).
 - folder_list: every existing folder and its structure.
 - existing_categories: the current category vocabulary.
 - known_manufacturers: the preferred spelling for equipment manufacturers.
@@ -83,8 +85,14 @@ Page fixes (only when clearly needed; most pages need none, so leave both lists 
 - rotations: only pages that are sideways or upside down (this happens on paper-feeder scans too, not just flatbed). Give {page, degrees}, where degrees (90, 180 or 270) is the clockwise turn that makes the text read normally.
 - crop_pages: only pages that are badly skewed (tilted well beyond a few degrees; ignore slight tilt) or show a large area of scanner bed around the sheet. The calling code straightens and crops just these pages, after any rotation.
 
-Text:
-- For every page that came with an image, return its text in page_text: the OCR text corrected against the image (OCR errors, missed sections, stray symbols removed), with handwritten notes and part numbers marked as handwritten, and as uncertain where unclear. For a drawing, give its title block, labels and part numbers. Keep it to what is on the page.
+Text (pages that came with an image):
+A page is sent as an image because its OCR confidence was low, which does not always mean its OCR needs redoing. First decide what kind of page it is, then answer for that kind. Rewriting OCR is the expensive part: do it only when the page is mostly text and the OCR is actually wrong.
+- kind "visual" (a drawing, diagram, schematic, wiring diagram, chart, graph, photo, map or sketch; this is the most common case): do NOT try to transcribe it. Its OCR is usually scattered labels that make no sense as text. In page_text give a description of what the page shows (what it is, what equipment or system, what it is for), then a brief list of the searchable text on it: title block, drawing and part numbers, revision, key labels and callouts, notes. A few sentences plus the key labels is enough; the goal is that a search for the drawing finds this page, not a full transcription.
+- kind "text" (typed or printed text with real OCR errors: missed lines, garbled words, wrong numbers): return the OCR text corrected against the image (OCR errors, missed sections, stray symbols removed).
+- kind "handwritten" (handwriting carries the content, such as notes, forms filled in by hand or log sheets): transcribe what you can read, marking handwritten parts as handwritten and unclear parts as uncertain. If most of it is illegible, describe the page and give the parts you can read.
+- kind "keep_ocr": the page is text and its OCR is already good enough to search (only minor slips). Leave it out of page_text and list it under ocr_ok_pages instead; its OCR text is kept as is.
+- Blank pages (nothing of value) go in blank_pages and need no page_text.
+- Whatever you return in page_text replaces that page's OCR text in the document's text layer and in the search chunks, so it must stand on its own and only state what is on the page.
 - Do not return text for text-only pages; their OCR text is kept as is. Use it for naming and metadata, reading past obvious OCR slips.
 - Preserve technical values, part numbers, units, tables, and structure exactly. Do not "fix" a part number to look more normal.
 - Blank pages: mark a page for removal only if it has nothing of value (bleed-through, a stray line, a truly blank sheet), and only a page you were shown as an image. Never remove a page that has any real content, a signature, a stamp, or a handwritten note. List every page to remove in blank_pages (page numbers of the attached file, starting at 1); the calling code deletes exactly those pages, so when in doubt leave a page out of blank_pages. Add one flag per removed page saying why.
@@ -92,7 +100,9 @@ Text:
 =====================================================================
 NAMING
 =====================================================================
-- If the file has a default or poor name (scan001.pdf, doc002.pdf, IMG_4412.pdf, Untitled), give it a name based on the document's overall content.
+- Renaming is rare. The calling code only uses suggested_filename when rename_allowed is yes, which is only for files that still have a scanner's numbered default name (like Doc0337, Onesided0085, upstairs_double_sided_0001, upstairs_one_sided_0001). Every other name was given by a person and is kept.
+- When rename_allowed is no, set suggested_filename to the current name without its extension, and do not flag the name as poor.
+- When rename_allowed is yes, give it a name based on the document's overall content.
 - If the natural name would be excessively long, shorten the filename but keep the full title in the full_title field.
 - If a name collision with a similar document is likely, add a distinguishing detail from the content (version, revision, date, part number, customer). Do not add numbers like (1); the calling code handles that.
 - Filenames: plain words, no characters that are unsafe in file names, keep the original extension.
@@ -100,7 +110,8 @@ NAMING
 =====================================================================
 FOLDER PLACEMENT
 =====================================================================
-- If current_folder is "root", choose the best destination from folder_list. Use the exact folder path as listed.
+- When move_allowed is no, set destination_folder to NONE: the file stays where it is (files outside the main scan folder are never moved).
+- If move_allowed is yes (the file is at the top of the main scan folder), choose the best destination from folder_list. Use the exact folder path as listed.
 - Never invent a folder. If nothing fits, set destination_folder to NONE, and put your suggested new folder name in flags.
 - If the file is already in a folder, leave it there unless it is clearly wrong; if you think it is wrong, flag it with a reason instead of moving it.
 - The current folder and parent folder names are context for what the file is about (a customer, a project, an engine family). Use them when choosing categories and keywords, but only as INFERRED evidence.
@@ -240,6 +251,8 @@ def plan_chunks(path: Path, work_dir: Path) -> list[tuple[Path, int, int]]:
 
 S = {"type": "string"}
 STRINGS = {"type": "array", "items": S}
+# what a page sent as an image is; see "Text" in SYSTEM
+PAGE_KINDS = ["visual", "text", "handwritten"]
 CONFIDENCE = {"type": "string", "enum": ["confirmed", "inferred", "uncertain"]}
 
 def build_tool(folders, doc_types, departments):
@@ -281,10 +294,18 @@ def build_tool(folders, doc_types, departments):
                 "figures": {"type": "array", "items": {"type": "object", "properties": {
                     "page": {"type": "integer"}, "kind": S, "title": S, "summary": S}}},
                 "page_text": {"type": "array", "description":
-                    "Corrected text for each page that was sent as an image, and only those.",
+                    "Text for pages that were sent as an image and need it (never for text-only pages). "
+                    "kind visual: a description of the drawing/diagram plus its key searchable labels, "
+                    "not a transcription. kind text: OCR corrected against the image. kind handwritten: "
+                    "what can be read, marked handwritten / uncertain. Pages whose OCR is already fine "
+                    "go in ocr_ok_pages instead.",
                     "items": {"type": "object", "properties": {
-                        "page": {"type": "integer"}, "text": S},
-                        "required": ["page", "text"]}},
+                        "page": {"type": "integer"},
+                        "kind": {"type": "string", "enum": PAGE_KINDS},
+                        "text": S},
+                        "required": ["page", "kind", "text"]}},
+                "ocr_ok_pages": {"type": "array", "items": {"type": "integer"}, "description":
+                    "Pages sent as an image whose OCR text is already good enough to keep as is."},
                 "blank_pages": {"type": "array", "items": {"type": "integer"}, "description":
                     "Pages (numbered as in the [[Page N]] markers) that are blank or have nothing "
                     "of value and should be deleted. Empty when every page has content."},
@@ -334,6 +355,16 @@ def build_context() -> ScanContext:
     return ScanContext(system=system, tool=build_tool(folders, doc_types, departments), folders=folders)
 
 
+def rename_and_move_allowed(row) -> tuple[bool, bool]:
+    """What processRequest.process_document will do with Claude's name and folder:
+    rename only a Locomotive_Scans file with a scanner default name, move only a
+    file at the top of Locomotive_Scans. Files in other roots are never touched."""
+    root = row["root_folder"] if "root_folder" in row else None
+    in_main = not isinstance(root, str) or not root or root == MAIN_ROOT
+    return (in_main and is_scanner_default_name(row["file"]),
+            in_main and Path(row["relpath"]).parent.as_posix() in ("", "."))
+
+
 def location_of(row) -> tuple[str, str]:
     """(current_folder, parent_folder) for a file row, as folder paths."""
     parent = Path(row["relpath"]).parent.as_posix()
@@ -369,10 +400,13 @@ def build_params(ctx: ScanContext, path, row, page_start, page_end, total_pages=
     """Messages API parameters for one chunk; used by both local runs and the Batch API."""
     path = Path(path)
     current_folder, parent_folder = location_of(row)
+    rename_ok, move_ok = rename_and_move_allowed(row)
     header = (
         f"Filename: {row['file']}\n"
         f"current_folder: {current_folder}\n"
         f"parent_folder: {parent_folder}\n"
+        f"rename_allowed: {'yes' if rename_ok else 'no'}\n"
+        f"move_allowed: {'yes' if move_ok else 'no'}\n"
     )
     if path.suffix.lower() == ".pdf" and total_pages and (page_start, page_end) != (1, total_pages):
         instructions = header + (
@@ -607,9 +641,17 @@ def merge_chunk_results(chunks):
     page_text = {}
     for result, original_start, _ in chunks:
         for t in result.get("page_text") or []:
-            if isinstance(t, dict) and isinstance(t.get("page"), int) and isinstance(t.get("text"), str):
-                page_text[t["page"] + original_start - 1] = strip_line_numbers(t["text"])
-    merged["page_text"] = [{"page": p, "text": t} for p, t in sorted(page_text.items())]
+            if isinstance(t, dict) and isinstance(t.get("page"), int) and isinstance(t.get("text"), str) \
+                    and t["text"].strip():
+                page_text[t["page"] + original_start - 1] = (t.get("kind") or "text",
+                                                             strip_line_numbers(t["text"]))
+    merged["page_text"] = [{"page": p, "kind": k, "text": t} for p, (k, t) in sorted(page_text.items())]
+    merged["ocr_ok_pages"] = sorted({
+        page + original_start - 1
+        for result, original_start, _ in chunks
+        for page in (result.get("ocr_ok_pages") or [])
+        if isinstance(page, int)
+    } - set(page_text))
     merged.pop("full_text", None)       # built from the OCR + page_text when the PDF is rebuilt
 
     # Search chunks: line numbers are per request, so keep each request's

@@ -161,6 +161,12 @@ ADDED_COLUMNS = {
         "doc_title": "TEXT NOT NULL DEFAULT ''",
         "doc_summary": "TEXT NOT NULL DEFAULT ''",
         "doc_keywords": "TEXT NOT NULL DEFAULT ''",     # "; "-joined
+        # SharePoint upload tracking
+        "sharepoint_name": "TEXT",                      # its name on SharePoint when that isn't current_name
+                                                        # (files outside Locomotive_Scans are never renamed on disk)
+        "sharepoint_error": "TEXT NOT NULL DEFAULT ''", # why the last upload failed; '' = no failure
+        "sharepoint_failed_at": "TEXT",
+        "sharepoint_checked_at": "TEXT",                # last time a failed upload was looked for on SharePoint
     },
     "batches": {
         "api": "TEXT",                                  # 'batch' (Message Batches) or 'regular'

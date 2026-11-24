@@ -1,3 +1,4 @@
+import io
 import logging
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ from azure.ai.documentintelligence import DocumentIntelligenceClient
 from PIL import Image
 
 from system.db.dbfunctions.files import getDocsForIntel, update_ocr_service_intel, save_pages
+from system.paths import file_path
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +51,8 @@ def get_page_confidence_scores(path, result):
                 "ink": ink,
                 "send_image": avg <= LOW_CONFIDENCE,
                 "text": "\n".join(l.content for l in (page.lines or [])),
-                "angle": page.angle
+                "angle": page.angle or 0,
+                "words": len(scores),          # fix_orientation only trusts the angle with enough words
             })
         else:
             rows.append({
@@ -59,18 +62,20 @@ def get_page_confidence_scores(path, result):
                 "ink": ink,
                 "send_image": ink > BLANK_INK_THRESHOLD,
                 "text": "",
-                "angle": page.angle or 0
+                "angle": (page.angle or 0) if page else 0,
+                "words": 0,
             })
     return rows
 
 
 def doc_intel_scan(doc):
-    path = Path(doc["relpath"])
+    # relpath is relative to the file's own root (Locomotive_Scans, Product Info Library, ...)
+    path = file_path(doc)
     with open(path, "rb") as f:
         poller = client.begin_analyze_document("prebuilt-read", body=f)
         result = poller.result()
     rows = get_page_confidence_scores(path, result)
-    save_pages(doc.file_id, "doc_intel", rows)
+    save_pages(doc["uuid"], "doc_intel", [{k: v for k, v in r.items() if k not in ("angle", "words")} for r in rows])
     return result
 
 
@@ -197,7 +202,8 @@ def analyze(path):
 
 
 def process_and_write(doc):
-    path = Path(doc.relpath)
+    # relpath is relative to the file's own root, so build the path from root_folder too
+    path = file_path(doc)
 
     result = analyze(path)
     rows = get_page_confidence_scores(path, result)
@@ -207,9 +213,9 @@ def process_and_write(doc):
         rows = get_page_confidence_scores(path, result)
 
     db_rows = [{k: v for k, v in r.items() if k not in ("angle", "words")} for r in rows]
-    save_pages(doc.file_id, "doc_intel", db_rows)  
+    save_pages(doc["uuid"], "doc_intel", db_rows)      # save_pages takes the file's uuid
     write_text_layer(path, result)
-    update_ocr_service_intel(doc.file_id)
+    update_ocr_service_intel(doc["file_id"])
 
 
 def process_files():
@@ -223,7 +229,7 @@ def process_files():
         try:
             process_and_write(f)
         except Exception:
-            log.exception("Doc Intel failed for file_id=%s", getattr(f, "file_id", "?"))
+            log.exception("Doc Intel failed for file_id=%s", f["file_id"])
             failed.append(f)
 
     if failed:
