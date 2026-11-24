@@ -266,6 +266,7 @@ async def _sync(on_event) -> dict:
             "tagged": tagged, "tag_failed": tag_failed}
 
 
+
 def sync_to_sharepoint(on_event=_no_events):
     """Upload every folder and scanned file that isn't on SharePoint yet.
     Returns counts, or None when SharePoint isn't configured or a sync is already running."""

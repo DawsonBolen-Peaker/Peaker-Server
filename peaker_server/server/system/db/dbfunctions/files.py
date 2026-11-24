@@ -1,5 +1,3 @@
-"""Rows in the files table: finding new files on disk, their status, OCR pages and SharePoint record."""
-
 import uuid
 from pathlib import Path
 import pandas as pd
@@ -14,17 +12,6 @@ from system.db.dbfunctions.helpers import (now, rel, sha256_of, is_top_level, fr
                                            is_system_file, is_accepted_file, join_departments)
 
 
-
-
-
-
-
-
-
-
-
-
-
 def rename_top_level_file(conn, path: Path, root_folder: str, not_file_id=None) -> Path:
     """Rename a file directly inside a root (on disk) when a top-level file or
     folder from another root has its name on SharePoint. Returns its path now."""
@@ -33,14 +20,13 @@ def rename_top_level_file(conn, path: Path, root_folder: str, not_file_id=None) 
     if new_name == path.name:
         return path
     new_path = path.with_name(new_name)
-    while new_path.exists():                     # a file not in docs.db yet already has that name
+    while new_path.exists():                   
         taken.add(new_name.casefold())
         new_name = free_name(path.name, root_folder, taken, is_file=True)
         new_path = path.with_name(new_name)
     path.rename(new_path)
     print(f"Renamed {root_folder}/{path.name} -> {new_name} (another root has a top-level {path.name!r})")
     return new_path
-
 
 
 def _same_document(conn, path: Path):
@@ -60,14 +46,6 @@ def _same_document(conn, path: Path):
     if candidates:
         return "copy", candidates[0], digest, pdf_id
     return None, None, digest, pdf_id
-
-
-# SYSTEM_FILES / is_system_file() and is_accepted_file() are in helpers.py.
-
-
-
-
-# The roots files come from are ROOTS in system/paths.py.
 
 
 OCR_PAGES_TO_CHECK = 5
@@ -104,8 +82,6 @@ def ocr_status_of(path: Path):
     return pdf_facts(path)[0]
 
 
-
-
 def skip_non_pdfs(conn) -> int:
     """Only PDFs go to Claude. Waiting files that aren't PDFs (Word, Excel,
     images, ...) are set to skipped, so no run sends them."""
@@ -117,8 +93,6 @@ def skip_non_pdfs(conn) -> int:
     if ids:
         print(f"{len(ids)} files that aren't PDFs set to skipped (only PDFs go to Claude)")
     return len(ids)
-
-
 
 
 def add_new_items() -> list[str]:
@@ -276,10 +250,25 @@ def rename_file_for_sharepoint(file_id: str, also_taken: str = "") -> Path:
     return new_path
 
 
+def get_files_for_sharepoint():
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM files WHERE status = ? AND uploaded_to_sharepoint = ? AND ",
+            ("scanned", 0),
+        ).fetchall()
+    return rows
+
+
 def getDocsForIntel():
     with connect() as conn:
         rows = conn.execute("SELECT * FROM files WHERE ocr_service ? OR ocr_status = ? AND status = ?", ('scanner', 'none', 'unscanned')).fetchall()
     return rows
+
+def update_ocr_service_intel(id):
+    with connect() as conn:
+        conn.execute("UPDATE files SET ocr_status = ?, ocr_service = ? WHERE file_id = ?",
+                    ("scanned", "doc_intel", id))
+
 
 
 def top_level_names_for(file_id: str) -> set:
@@ -315,7 +304,6 @@ def save_pages(file_id: str, stamp: str, pages: list[dict]) -> None:
 
 
 
-
 def clear_pages(file_id: str) -> None:
     with connect() as conn:
         conn.execute("DELETE FROM pages WHERE file_id = (SELECT file_id FROM files WHERE uuid = ?)", (file_id,))
@@ -346,3 +334,6 @@ def reset_failed() -> int:
 def mark_failed(file_id: str, error: str) -> None:
     """The next add_new_items() puts failed files back with the unscanned ones (requeue_failed)."""
     set_status([file_id], FAILED, error=error)
+
+
+

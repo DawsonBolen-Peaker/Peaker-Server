@@ -10,6 +10,7 @@ from msgraph.generated.drives.item.items.item.create_upload_session.create_uploa
 )
 from msgraph.generated.models.drive_item import DriveItem
 from msgraph.generated.models.folder import Folder
+from system.db.dbfunctions.files import get_files_for_sharepoint
 
 drive_id = os.environ["SHAREPOINT_DRIVE_ID"]
 tenant_id = os.environ["SHAREPOINT_TENANT_ID"]
@@ -101,6 +102,16 @@ async def postFolderToSharepoint(
         return folder
     finally:
         await credential.close()
+
+
+#this can still just happen after file upload but yeah
+def upload_unadded_sharepoint():
+    files = get_files_for_sharepoint()
+    for file in files:
+        postFileToSharepoint()
+
+
+
 
 
 #I have decided to work on this in a seperate workflow to test then i will implement here

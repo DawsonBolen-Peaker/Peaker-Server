@@ -25,27 +25,57 @@
 
 from services.Claude.batchApi import check_batches
 from system.db.dbfunctions.files import add_new_items
-
 import time
+from services.Azure.add_ocr import process_files
+from services.SharePoint.sharepoint_manager import sync_to_sharepoint
 
 
 #chunking is kidn of part of db syncing but it is a large very important process within this system so should keep it seperate
 
 job_states = ["claude_batching", "sharepoint_sync", "claude_processing", "doc_intel", "db_syncing", "chunking"]
 
+
+# def initial_sharepoint_sync():
+    #this is more future tense for this project, it'd be nice but not the most significant thing to get this working considering how much work it will be
+    #potentially rename syncing eventually
+    #any files that have been modified in sharepoint or deleted. 
+    #any files that are on sharepoint but not locally
+
+    #initial sharepoint sync when server starts, too big of a query to run every cycle 
+
+    #if some failed, there is usually 1 or 2 that are too large, see if they have been added manually, then get their id and put it in db
+
+    #check and see if any files are processed and need to be added to sharepoint
+
 def mainLoop():
-    #pretty similar to on start
-
-    #check files and folders that need to be uploaded to sharepoint or that failed
-
-    #check claude batches
     check_batches()
+    sync_to_sharepoint()
 
-    #no need to rapid fire, we will check all conditions once everything has been checked
-    add_new_items()
+    while True:
+        #pretty similar to on start
+
+        #check files and folders that need to be uploaded to sharepoint or that failed
+
+        #check claude batches first thing, i think I already do this but then again it may be trying to do so on a seperate thread as is, so I will check the db to see if any are processing, if not continue, else check and see if they are ready, if not then, continue 
+        check_batches()
+
+        #add new items to the db
+        add_new_items()
+
+        #process files with doc intel
+        process_files()
+
+        sync_to_sharepoint()
+
+        #upload to sharepoint
+        time.sleep(30)
+
+
+
+
 
     #once all these steps are checked, then wait 30 more seconds
-    time.sleep(30)
+   
 
 
     
@@ -54,7 +84,7 @@ def mainLoop():
 
 
 
-    print('loop')
+
 
 
 def onStart():
